@@ -140,13 +140,13 @@ export function MyShop() {
 
 function QuickStats() {
   const shop = useGameStore((s) => s.shop);
+  const monthlyStats = useGameStore((s) => s.monthlyStats);
   const navigate = useNavigate();
   const [showDetail, setShowDetail] = useState(false);
   if (!shop) return null;
   const totalMachines = shop.layout.reduce((s, e) => s + e.count, 0);
-  // 現在店舗にいる客 (シミュ簡易): dailyCustomers / 4 を上限に
   const playingNow = Math.min(totalMachines, Math.floor(shop.dailyCustomers / 4));
-  const todayRevenue = shop.dailyCustomers * 5_000;
+  const todayRevenue = Math.round(shop.dailyCustomers * 5_000 * 0.18);
   return (
     <div className="px-4 mt-3">
       <div className="grid grid-cols-2 gap-3">
@@ -165,7 +165,9 @@ function QuickStats() {
           <p className="mt-1 font-pixel text-pachi-yellow">
             <span className="text-base">¥{todayRevenue.toLocaleString()}</span>
           </p>
-          <p className="text-[9px] text-white/40 mt-0.5">概算 (実装中)</p>
+          <p className="text-[9px] text-white/40 mt-0.5">
+            今月 ¥{Math.round(monthlyStats.revenue).toLocaleString()}
+          </p>
         </div>
       </div>
       <button

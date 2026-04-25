@@ -1,134 +1,169 @@
 import { useGameStore } from "../stores/useGameStore";
+import {
+  monthProfit,
+  totalExpense,
+  BIZ_DAYS_PER_MONTH,
+  MONTHLY_RENT,
+  MONTHLY_ELECTRIC,
+  MONTHLY_LABOR,
+} from "../lib/economy";
 
 /**
  * 売上 / 支出ダッシュボード (基本情報用)
- * 実装中の値以外はプレースホルダ。実装に合わせて差し替え予定。
  */
 export function ShopDashboard() {
   const shop = useGameStore((s) => s.shop);
   const user = useGameStore((s) => s.user);
+  const stats = useGameStore((s) => s.monthlyStats);
+  const lastStats = useGameStore((s) => s.lastMonthlyStats);
+  const managerLevel = useGameStore((s) => s.managerLevel);
+  const managerXp = useGameStore((s) => s.managerXp);
 
   if (!shop) return null;
 
   const totalMachines = shop.layout.reduce((s, e) => s + e.count, 0);
-  // プレースホルダ: 実装次第で差し替え
-  const monthlyCustomers = shop.totalCustomers; // 現状は累計をそのまま
-  const todayRevenue = shop.dailyCustomers * 5_000;
-  const monthlyRevenue = todayRevenue * 30;
-  const monthlyRent = 1_500_000;
-  const monthlyElectric = 800_000;
-  const monthlyLabor = 2_400_000;
-  const monthlyMaintenance = 0;
-  const monthlyEvent = 0;
-  const monthlyEquipment = 0;
-  const monthlyExpense =
-    monthlyRent + monthlyElectric + monthlyLabor + monthlyMaintenance + monthlyEvent + monthlyEquipment;
-  const monthlyProfit = monthlyRevenue - monthlyExpense;
-  const managerSavings = 0; // 店長コスト削減額 (仮)
-  const playingNow = Math.min(totalMachines, Math.floor(shop.dailyCustomers / 4));
+  const playingNow = Math.min(
+    totalMachines,
+    Math.floor(shop.dailyCustomers / 4)
+  );
+  const todayRevenue = Math.round(shop.dailyCustomers * 5_000 * 0.18);
+  const expense = totalExpense(stats);
+  const profit = monthProfit(stats);
+  const monthProgress = Math.min(100, (stats.bizDayProgress / BIZ_DAYS_PER_MONTH) * 100);
+  // 店長レベルが高いほど人件費削減 (-2% / Lv, 上限 -50%)
+  const managerSavings = Math.round(
+    (MONTHLY_RENT + MONTHLY_ELECTRIC + MONTHLY_LABOR) *
+      Math.min(0.5, (managerLevel - 1) * 0.02) *
+      (stats.bizDayProgress / BIZ_DAYS_PER_MONTH)
+  );
 
   return (
     <div className="px-4 mt-3">
       <div className="pixel-panel p-3">
         <p className="font-pixel text-[10px] text-pachi-cyan mb-2">経営ダッシュボード</p>
 
-        {/* 客数 */}
+        {/* 月の進捗 */}
+        <div className="mb-3">
+          <div className="flex justify-between text-[10px]">
+            <span className="text-white/60">今月の進捗</span>
+            <span className="font-pixel text-pachi-yellow">
+              {stats.bizDayProgress.toFixed(1)} / {BIZ_DAYS_PER_MONTH} 営業日
+            </span>
+          </div>
+          <div className="mt-1 h-2 bg-bg-base border border-bg-card overflow-hidden">
+            <div
+              className="h-full bg-pachi-cyan transition-all"
+              style={{ width: `${monthProgress}%` }}
+            />
+          </div>
+        </div>
+
         <Section label="客数">
           <Item label="現在遊戯中" value={`${playingNow} 名`} />
           <Item label="今日の来店" value={shop.dailyCustomers.toLocaleString() + " 名"} />
           <Item label="累計来店" value={shop.totalCustomers.toLocaleString() + " 名"} />
           <Item
             label="今月の来店"
-            value={monthlyCustomers.toLocaleString() + " 名"}
-            placeholder
+            value={stats.customers.toLocaleString() + " 名"}
           />
         </Section>
 
-        {/* 売上 */}
         <Section label="売上">
           <Item
             label="今日の売上"
             value={"¥" + todayRevenue.toLocaleString()}
             color="text-pachi-green"
-            placeholder
           />
           <Item
             label="今月の売上"
-            value={"¥" + monthlyRevenue.toLocaleString()}
+            value={"¥" + Math.round(stats.revenue).toLocaleString()}
             color="text-pachi-green"
-            placeholder
           />
         </Section>
 
-        {/* 支出内訳 */}
         <Section label="今月の支出">
           <Item
             label="家賃"
-            value={"¥" + monthlyRent.toLocaleString()}
+            value={"¥" + Math.round(stats.rent).toLocaleString()}
             color="text-pachi-pink"
-            placeholder
           />
           <Item
             label="電気代"
-            value={"¥" + monthlyElectric.toLocaleString()}
+            value={"¥" + Math.round(stats.electric).toLocaleString()}
             color="text-pachi-pink"
-            placeholder
           />
           <Item
             label="人件費"
-            value={"¥" + monthlyLabor.toLocaleString()}
+            value={"¥" + Math.round(stats.labor).toLocaleString()}
             color="text-pachi-pink"
-            placeholder
           />
           <Item
             label="修繕費"
-            value={"¥" + monthlyMaintenance.toLocaleString()}
-            placeholder
+            value={"¥" + Math.round(stats.repair).toLocaleString()}
           />
           <Item
             label="イベント費"
-            value={"¥" + monthlyEvent.toLocaleString()}
-            placeholder
+            value={"¥" + Math.round(stats.event).toLocaleString()}
           />
           <Item
             label="設備投資"
-            value={"¥" + monthlyEquipment.toLocaleString()}
-            placeholder
+            value={"¥" + Math.round(stats.equipment).toLocaleString()}
+          />
+          <Item
+            label="保管費"
+            value={"¥" + Math.round(stats.storage).toLocaleString()}
           />
           <Item
             label="支出合計"
-            value={"¥" + monthlyExpense.toLocaleString()}
+            value={"¥" + Math.round(expense).toLocaleString()}
             color="text-pachi-red"
-            placeholder
           />
         </Section>
 
-        {/* 損益 */}
         <Section label="損益">
           <Item
             label="今月の利益"
-            value={"¥" + monthlyProfit.toLocaleString()}
-            color={monthlyProfit >= 0 ? "text-pachi-green" : "text-pachi-red"}
-            placeholder
+            value={"¥" + Math.round(profit).toLocaleString()}
+            color={profit >= 0 ? "text-pachi-green" : "text-pachi-red"}
           />
           <Item
-            label="店長の節約額"
+            label={`店長Lv ${managerLevel} 節約額`}
             value={"¥" + managerSavings.toLocaleString()}
-            placeholder
+          />
+          <Item
+            label={`店長XP`}
+            value={`${managerXp} / 100`}
           />
         </Section>
 
-        {/* 所持金 */}
+        {lastStats && (
+          <div className="mt-3 pt-2 border-t border-bg-card">
+            <p className="font-pixel text-[10px] text-white/60 mb-1">先月の実績</p>
+            <Item
+              label="売上"
+              value={"¥" + Math.round(lastStats.revenue).toLocaleString()}
+            />
+            <Item
+              label="支出"
+              value={"¥" + Math.round(totalExpense(lastStats)).toLocaleString()}
+              color="text-pachi-red"
+            />
+            <Item
+              label="利益"
+              value={"¥" + Math.round(monthProfit(lastStats)).toLocaleString()}
+              color={
+                monthProfit(lastStats) >= 0 ? "text-pachi-green" : "text-pachi-red"
+              }
+            />
+          </div>
+        )}
+
         <div className="mt-3 pt-2 border-t border-bg-card flex justify-between items-baseline">
           <span className="font-pixel text-[10px] text-pachi-yellow">店の現金</span>
           <span className="font-pixel text-pachi-yellow text-sm">
             ¥{(user?.cash ?? 0).toLocaleString()}
           </span>
         </div>
-
-        <p className="mt-2 text-[9px] text-white/40">
-          ※ ⚠ 印は実装中の概算値です
-        </p>
       </div>
     </div>
   );
@@ -153,19 +188,14 @@ function Item({
   label,
   value,
   color = "text-white",
-  placeholder,
 }: {
   label: string;
   value: string;
   color?: string;
-  placeholder?: boolean;
 }) {
   return (
     <div className="flex justify-between text-[11px] py-0.5">
-      <span className="text-white/60 font-dot">
-        {label}
-        {placeholder && <span className="text-pachi-yellow ml-1">⚠</span>}
-      </span>
+      <span className="text-white/60 font-dot">{label}</span>
       <span className={`font-pixel ${color}`}>{value}</span>
     </div>
   );

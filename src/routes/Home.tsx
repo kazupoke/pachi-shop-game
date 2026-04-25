@@ -4,6 +4,9 @@ import { useGameStore } from "../stores/useGameStore";
 import { MachineThumb } from "../components/MachineThumb";
 import { MACHINES_BY_ID } from "../data/machines";
 import { BizHoursGauge } from "../components/BizHoursGauge";
+import { calendarEventOf, SPECIAL_EVENTS_BY_ID } from "../lib/event";
+import { PERFORMERS_BY_ID } from "../lib/performer";
+import type { NewsItem } from "../lib/news";
 import type { Rarity } from "../lib/types";
 
 const RARITY_COLOR: Record<Rarity, string> = {
@@ -22,6 +25,10 @@ export function Home() {
   const claimLoginBonus = useGameStore((s) => s.claimLoginBonus);
   const loginBonus = useGameStore((s) => s.loginBonus);
   const chodama = useGameStore((s) => s.chodama);
+  const activeEvent = useGameStore((s) => s.activeEvent);
+  const activePerformer = useGameStore((s) => s.activePerformer);
+  const newsItems = useGameStore((s) => s.newsItems);
+  const scheduledSettings = useGameStore((s) => s.scheduledSettings);
   const [bonusMsg, setBonusMsg] = useState<string | null>(null);
   const today = new Date().toISOString().slice(0, 10);
   const claimed = loginBonus.lastClaimDate === today;
@@ -159,37 +166,22 @@ export function Home() {
           今日の運営
         </p>
         <div className="grid grid-cols-1 gap-2">
-          <DailyOpsButton
-            label="📅 イベント日を選ぶ"
-            desc="6・7・8 のつく日 / 末尾 0 / 月初など"
-          />
-          <DailyOpsButton
-            label="🎤 来店演者を呼ぶ"
-            desc="演者で集客 UP (実装中)"
-          />
-          <DailyOpsButton
-            label="⚙️ 明日の設定を組む"
-            desc="3 日先まで自動設定スケジュール (実装中)"
-            link="/manager/settings"
-            navigate={navigate}
-          />
+          <TodayEventButton navigate={navigate} activeId={
+            activeEvent && activeEvent.appliedDate === today
+              ? activeEvent.specialId
+              : null
+          } />
+          <TodayPerformerButton navigate={navigate} performerId={
+            activePerformer && activePerformer.appliedDate === today
+              ? activePerformer.performerId
+              : null
+          } />
+          <TodayScheduleButton navigate={navigate} scheduledSettings={scheduledSettings} />
         </div>
       </section>
 
-      {/* === 業界最新ニュース (placeholder) === */}
-      <section className="pixel-panel p-3">
-        <p className="font-pixel text-[10px] text-pachi-cyan mb-2">
-          業界最新ニュース
-        </p>
-        <ul className="space-y-1 text-[11px] text-white/70 leading-relaxed">
-          <li>・新台「Lタクトオーパス デスティニー」掲示板アクセス急増</li>
-          <li>・全国店舗で 6 のつく日イベント</li>
-          <li>・市場流通量、年初比 -18%</li>
-        </ul>
-        <p className="text-[9px] text-white/40 mt-2">
-          ※ ニュース機能は今後拡充
-        </p>
-      </section>
+      {/* === 業界最新ニュース === */}
+      <NewsSection newsItems={newsItems} />
 
       {/* === クイックアクセス === */}
       <section className="grid grid-cols-2 gap-2">
@@ -228,26 +220,136 @@ export function Home() {
   );
 }
 
-function DailyOpsButton({
-  label,
-  desc,
-  link,
+function TodayEventButton({
   navigate,
+  activeId,
 }: {
-  label: string;
-  desc: string;
-  link?: string;
-  navigate?: ReturnType<typeof useNavigate>;
+  navigate: ReturnType<typeof useNavigate>;
+  activeId: string | null;
 }) {
-  const enabled = !!link;
+  const today = new Date();
+  const cal = calendarEventOf(today);
+  const ev = activeId ? SPECIAL_EVENTS_BY_ID[activeId] : null;
+  let label = "📅 イベント日を選ぶ";
+  let desc = "6・7・8 のつく日 / 末尾 0 / 月初など";
+  if (ev) {
+    label = `${ev.emoji} ${ev.name} 発動中`;
+    desc = `集客 ×${ev.attractMul.toFixed(2)} ・ 機械割 +${ev.payoutBonus}%`;
+  } else if (cal) {
+    desc = `本日 ${cal.emoji} ${cal.name} (×${cal.attractMul.toFixed(2)})`;
+  }
   return (
     <button
-      onClick={() => link && navigate?.(link)}
-      disabled={!enabled}
-      className="bg-bg-base border-2 border-bg-card p-2 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+      onClick={() => navigate("/manager/event")}
+      className={`bg-bg-base border-2 p-2 text-left ${
+        ev ? "border-pachi-yellow" : "border-bg-card"
+      }`}
     >
       <p className="text-[11px] text-white">{label}</p>
-      <p className="text-[10px] text-white/50 mt-0.5">{desc}</p>
+      <p className="text-[10px] text-white/60 mt-0.5">{desc}</p>
     </button>
+  );
+}
+
+function TodayPerformerButton({
+  navigate,
+  performerId,
+}: {
+  navigate: ReturnType<typeof useNavigate>;
+  performerId: string | null;
+}) {
+  const p = performerId ? PERFORMERS_BY_ID[performerId] : null;
+  let label = "🎤 来店演者を呼ぶ";
+  let desc = "ライター/YouTuber/メーカー社員 を呼ぶ";
+  if (p) {
+    label = `${p.emoji} ${p.name} 来店中`;
+    desc = `${p.title} ・ 集客 ×${p.attractMul.toFixed(2)}`;
+  }
+  return (
+    <button
+      onClick={() => navigate("/manager/performer")}
+      className={`bg-bg-base border-2 p-2 text-left ${
+        p ? "border-pachi-pink" : "border-bg-card"
+      }`}
+    >
+      <p className="text-[11px] text-white">{label}</p>
+      <p className="text-[10px] text-white/60 mt-0.5">{desc}</p>
+    </button>
+  );
+}
+
+function TodayScheduleButton({
+  navigate,
+  scheduledSettings,
+}: {
+  navigate: ReturnType<typeof useNavigate>;
+  scheduledSettings: Record<string, Record<string, number>>;
+}) {
+  // 明日 / 明後日 / 3 日後の予約数を集計
+  const counts = [1, 2, 3].map((offset) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    const k = d.toISOString().slice(0, 10);
+    return Object.keys(scheduledSettings[k] ?? {}).length;
+  });
+  const total = counts.reduce((a, b) => a + b, 0);
+  return (
+    <button
+      onClick={() => navigate("/manager/schedule")}
+      className={`bg-bg-base border-2 p-2 text-left ${
+        total > 0 ? "border-pachi-cyan" : "border-bg-card"
+      }`}
+    >
+      <p className="text-[11px] text-white">⚙️ 明日の設定を組む</p>
+      <p className="text-[10px] text-white/60 mt-0.5">
+        {total > 0
+          ? `予約 ${total} 件 (明日${counts[0]} / 明後日${counts[1]} / 3日後${counts[2]})`
+          : "3 日先まで自動設定スケジュール"}
+      </p>
+    </button>
+  );
+}
+
+function NewsSection({ newsItems }: { newsItems: NewsItem[] }) {
+  if (newsItems.length === 0) {
+    return (
+      <section className="pixel-panel p-3">
+        <p className="font-pixel text-[10px] text-pachi-cyan mb-2">
+          業界最新ニュース
+        </p>
+        <ul className="space-y-1 text-[11px] text-white/70 leading-relaxed">
+          <li>・新台情報や業界動向はここに表示されます</li>
+          <li>・営業を続けるとニュースが増えます</li>
+        </ul>
+      </section>
+    );
+  }
+  const colorByKind = {
+    industry: "text-pachi-cyan",
+    shop: "text-pachi-green",
+    event: "text-pachi-yellow",
+    rumor: "text-pachi-pink",
+  } as const;
+  return (
+    <section className="pixel-panel p-3">
+      <p className="font-pixel text-[10px] text-pachi-cyan mb-2">
+        業界最新ニュース
+      </p>
+      <ul className="space-y-1 text-[11px] text-white/80 leading-relaxed">
+        {newsItems.slice(0, 6).map((n) => (
+          <li key={n.id} className="flex gap-2">
+            <span className={`font-pixel text-[9px] shrink-0 ${colorByKind[n.kind]}`}>
+              [{n.kind === "industry" ? "業界" : n.kind === "shop" ? "店舗" : n.kind === "event" ? "速報" : "噂"}]
+            </span>
+            <span>{n.text}</span>
+          </li>
+        ))}
+      </ul>
+      {newsItems.length > 6 && (
+        <p className="text-[9px] text-white/40 mt-2">
+          ※ さらに {newsItems.length - 6} 件
+        </p>
+      )}
+    </section>
   );
 }

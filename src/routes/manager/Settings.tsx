@@ -82,7 +82,8 @@ export function Settings() {
           <ul className="text-white/70 space-y-0.5">
             <li>・高設定 (4-6): 客付き UP / 機械割 100% 超 = 店マイナス</li>
             <li>・低設定 (1-3): 客付き DOWN / 機械割 100% 未満 = 店プラス</li>
-            <li>・連続低設定で常連離れ、高設定で常連増 (実装中)</li>
+            <li>・平均設定 2.5 未満で常連が離れていく</li>
+            <li>・設定 4 以上で常連レベルが伸びやすくなる</li>
           </ul>
         </div>
       </div>

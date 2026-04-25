@@ -12,6 +12,27 @@ interface MenuItem {
 
 const MENU: MenuItem[] = [
   {
+    to: "/manager/event",
+    label: "イベント",
+    desc: "今日のイベントを発動 (集客UP)",
+    emoji: "📅",
+    accent: "border-pachi-pink",
+  },
+  {
+    to: "/manager/performer",
+    label: "来店演者",
+    desc: "ライター/YouTuberを呼ぶ (集客UP)",
+    emoji: "🎤",
+    accent: "border-pachi-yellow",
+  },
+  {
+    to: "/manager/schedule",
+    label: "設定スケジュール",
+    desc: "3日先まで設定を予約",
+    emoji: "📋",
+    accent: "border-pachi-cyan",
+  },
+  {
     to: "/manager/inspect",
     label: "覆面調査",
     desc: "他店を訪問して報酬を受け取る",

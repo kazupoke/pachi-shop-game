@@ -20,6 +20,9 @@ import { Maintain } from "./routes/manager/Maintain";
 import { Settings } from "./routes/manager/Settings";
 import { Regulars } from "./routes/manager/Regulars";
 import { Security } from "./routes/manager/Security";
+import { Event } from "./routes/manager/Event";
+import { Performer } from "./routes/manager/Performer";
+import { Schedule } from "./routes/manager/Schedule";
 import { Market } from "./routes/Market";
 import { Title } from "./routes/Title";
 import { Ranking } from "./routes/Ranking";
@@ -46,6 +49,9 @@ export const router = createBrowserRouter(
         { path: "manager/settings", element: <Settings /> },
         { path: "manager/regulars", element: <Regulars /> },
         { path: "manager/security", element: <Security /> },
+        { path: "manager/event", element: <Event /> },
+        { path: "manager/performer", element: <Performer /> },
+        { path: "manager/schedule", element: <Schedule /> },
         { path: "market", element: <Market /> },
         { path: "ranking", element: <Ranking /> },
         { path: "expand", element: <Expand /> },

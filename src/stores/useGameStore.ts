@@ -3,6 +3,28 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { Shop, User, FMLEntry, Machine, Generation, MachineType } from "../lib/types";
 import { uuid, shortId, handoverCode } from "../lib/id";
 import { MACHINES_BY_ID } from "../data/machines";
+import {
+  emptyMonthlyStats,
+  MONTHLY_RENT,
+  MONTHLY_ELECTRIC,
+  MONTHLY_LABOR,
+  REAL_SEC_PER_MONTH,
+  REAL_SEC_PER_BIZ_DAY,
+  type MonthlyStats,
+} from "../lib/economy";
+import {
+  SPECIAL_EVENTS_BY_ID,
+  calendarEventOf,
+  type ActiveEvent,
+} from "../lib/event";
+import { PERFORMERS_BY_ID, type ActivePerformer } from "../lib/performer";
+import {
+  genIndustryNews,
+  genShopNews,
+  genRumorNews,
+  genEventNews,
+  type NewsItem,
+} from "../lib/news";
 
 const MACHINES_BY_ID_GLOBAL = MACHINES_BY_ID;
 
@@ -150,6 +172,20 @@ interface GameState {
     visits: number;
     lastVisitAt: string;
   }>;
+  /** 当月の家計簿 */
+  monthlyStats: MonthlyStats;
+  /** 先月の家計簿 (月締め時にスナップ) */
+  lastMonthlyStats: MonthlyStats | null;
+  /** 今日のスペシャルイベント */
+  activeEvent: ActiveEvent | null;
+  /** 今日呼んだ演者 */
+  activePerformer: ActivePerformer | null;
+  /** 設定スケジュール: dateKey(YYYY-MM-DD) -> machineId -> setting */
+  scheduledSettings: Record<string, Record<string, 1 | 2 | 3 | 4 | 5 | 6>>;
+  /** 業界ニュース (新しい順、最大 12 件) */
+  newsItems: NewsItem[];
+  /** ニュース最終生成日時 (ISO) */
+  newsLastGeneratedAt: string | null;
   initUser: () => void;
   tickSimulation: (machineRarityMap: Record<string, keyof typeof RARITY_WEIGHT_MAP>) => TickResult;
   createShop: (name: string) => void;
@@ -191,6 +227,24 @@ interface GameState {
   setPassword: (password: string) => void;
   clearPassword: () => void;
   resetAll: () => void;
+  /** 今日のイベントを選ぶ (コスト消費) */
+  selectTodayEvent: (eventId: string) => { ok: boolean; reason?: string };
+  /** 今日の演者を呼ぶ (コスト消費) */
+  hireTodayPerformer: (performerId: string) => { ok: boolean; reason?: string };
+  /** 設定スケジュールを 1 件登録 */
+  scheduleSetting: (
+    dateKey: string,
+    machineId: string,
+    setting: 1 | 2 | 3 | 4 | 5 | 6
+  ) => void;
+  /** スケジュール削除 */
+  clearScheduledSetting: (dateKey: string, machineId: string) => void;
+  /** 任意の日付の設定スケジュールを取得 (machineId -> setting) */
+  getScheduledFor: (dateKey: string) => Record<string, 1 | 2 | 3 | 4 | 5 | 6>;
+  /** 店長 XP 加算 */
+  addManagerXp: (amount: number) => void;
+  /** ニュースを 1 件追加 */
+  addNewsItem: (item: NewsItem) => void;
 }
 
 export const useGameStore = create<GameState>()(
@@ -223,6 +277,13 @@ export const useGameStore = create<GameState>()(
         基盤: 0,
       },
       regulars: [],
+      monthlyStats: emptyMonthlyStats(),
+      lastMonthlyStats: null,
+      activeEvent: null,
+      activePerformer: null,
+      scheduledSettings: {},
+      newsItems: [],
+      newsLastGeneratedAt: null,
 
       initUser: () => {
         if (!get().user) set({ user: createUser() });
@@ -239,17 +300,55 @@ export const useGameStore = create<GameState>()(
         }
         const lastDate = last ? new Date(last) : now;
         const elapsedSecRaw = Math.max(0, Math.floor((now.getTime() - lastDate.getTime()) / 1000));
-        // オフライン進行は最大12時間
         const elapsedSec = Math.min(elapsedSecRaw, 12 * 3600);
         if (elapsedSec < 5) {
           return { elapsedSec: 0, newCustomers: 0, revenue: 0 };
         }
 
-        // 設定値による客付き倍率テーブル
+        // 営業日サイクル (BizHoursGauge と同じ anchor を使用)
+        const anchorStr = localStorage.getItem("pachi-biz-anchor-v1");
+        const anchorMs = anchorStr ? parseInt(anchorStr, 10) : Date.now();
+        const cycleLenMs = REAL_SEC_PER_BIZ_DAY * 1000;
+        const cyclesNow = Math.floor((now.getTime() - anchorMs) / cycleLenMs);
+        const cyclesLast = Math.floor((lastDate.getTime() - anchorMs) / cycleLenMs);
+        const cycleAdvanced = cyclesNow > cyclesLast;
+        const cyclePos = ((now.getTime() - anchorMs) % cycleLenMs) / cycleLenMs;
+        const inClosing = cyclePos >= 0.75;
+        const todayKeyStr = todayKey();
+
+        // === 設定スケジュール適用 (営業日切替時) ===
+        let layoutBase = shop.layout;
+        let scheduledSettings = get().scheduledSettings;
+        let appliedScheduleNote: string | null = null;
+        if (cycleAdvanced) {
+          const todaySchedule = scheduledSettings[todayKeyStr];
+          if (todaySchedule && Object.keys(todaySchedule).length > 0) {
+            layoutBase = layoutBase.map((e) => {
+              const s = todaySchedule[e.machineId];
+              if (s) return { ...e, setting: s };
+              return e;
+            });
+            appliedScheduleNote = `本日の設定 ${Object.keys(todaySchedule).length} 件を自動適用`;
+            scheduledSettings = { ...scheduledSettings };
+            delete scheduledSettings[todayKeyStr];
+          }
+        }
+
+        // === イベント / 演者 expire ===
+        let activeEvent = get().activeEvent;
+        let activePerformer = get().activePerformer;
+        if (activeEvent && activeEvent.appliedDate !== todayKeyStr) {
+          activeEvent = null;
+        }
+        if (activePerformer && activePerformer.appliedDate !== todayKeyStr) {
+          activePerformer = null;
+        }
+        const calEvent = calendarEventOf(now);
+
+        // === attract / margin 集計 ===
         const attractBySetting: Record<number, number> = {
           1: 0.55, 2: 0.7, 3: 0.95, 4: 1.15, 5: 1.35, 6: 1.6,
         };
-        // 設定値による粗利率 (高設定で店マイナス, 低設定で店プラス)
         const marginBySetting: Record<number, number> = {
           1: 0.35, 2: 0.28, 3: 0.18, 4: 0.05, 5: -0.08, 6: -0.20,
         };
@@ -257,7 +356,9 @@ export const useGameStore = create<GameState>()(
         let totalMachines = 0;
         let weightedMargin = 0;
         let totalWeight = 0;
-        for (const entry of shop.layout) {
+        let settingSum = 0;
+        for (const entry of layoutBase) {
+          if (entry.brokenPart) continue; // 故障台は寄与しない
           const r = rarityMap[entry.machineId] ?? "N";
           const setting = entry.setting ?? 1;
           const settingFactor = attractBySetting[setting] ?? 1;
@@ -265,26 +366,53 @@ export const useGameStore = create<GameState>()(
           attract += w;
           totalMachines += entry.count;
           weightedMargin += (marginBySetting[setting] ?? 0.18) * entry.count;
+          settingSum += setting * entry.count;
           totalWeight += entry.count;
         }
+        const avgSetting = totalWeight > 0 ? settingSum / totalWeight : 1;
+
+        // イベント / 演者 / カレンダーの attract ブースト + 機械割上振れ
+        let attractMul = 1;
+        let payoutBonus = 0;
+        if (calEvent) attractMul *= calEvent.attractMul;
+        if (activeEvent) {
+          const ev = SPECIAL_EVENTS_BY_ID[activeEvent.specialId ?? ""];
+          if (ev) {
+            attractMul *= ev.attractMul;
+            payoutBonus += ev.payoutBonus;
+          }
+        }
+        if (activePerformer) {
+          const p = PERFORMERS_BY_ID[activePerformer.performerId];
+          if (p) attractMul *= p.attractMul;
+        }
+        attract *= attractMul;
+        const margin =
+          (totalWeight > 0 ? weightedMargin / totalWeight : 0.2) -
+          payoutBonus / 100;
+
         const cap = Math.round(attract * 5);
         const perSec = attract / 300;
         const grow = Math.floor(perSec * elapsedSec);
         const newDaily = Math.min(shop.dailyCustomers + grow, cap);
         const newCustomers = Math.max(0, newDaily - shop.dailyCustomers);
-        // 収益: 新規客 × 平均単価 × 平均粗利率 (設定で変動 / 高設定だとマイナスもある)
-        const margin = totalWeight > 0 ? weightedMargin / totalWeight : 0.2;
         const revenue = newCustomers * 5000 * margin;
 
-        // 常連の発生 / レベルアップ (簡易ロジック)
+        // === 常連 流入/流出 ===
         let regulars = get().regulars;
-        if (newCustomers > 0 && shop.layout.length > 0) {
-          // 50% で新規常連発生 or 既存レベルアップ
+        if (newCustomers > 0 && layoutBase.length > 0) {
           if (Math.random() < 0.5) {
-            const e = shop.layout[Math.floor(Math.random() * shop.layout.length)];
+            const e = layoutBase[Math.floor(Math.random() * layoutBase.length)];
             const m = MACHINES_BY_ID_GLOBAL?.[e.machineId];
-            if (m) {
+            if (m && !e.brokenPart) {
               const cat = inferDominantCategory(m.name, m.generation, m.type);
+              const setting = e.setting ?? 1;
+              const performerObj = activePerformer
+                ? PERFORMERS_BY_ID[activePerformer.performerId]
+                : null;
+              const performerBoost =
+                performerObj && performerObj.affinity === cat ? 2 : 1;
+              const lvUp = setting >= 4 ? 2 : 1;
               const existing = regulars.find(
                 (r) => r.category === cat && r.favoriteMachineId === e.machineId
               );
@@ -293,7 +421,10 @@ export const useGameStore = create<GameState>()(
                   r.id === existing.id
                     ? {
                         ...r,
-                        level: Math.min(100, r.level + 1 + Math.floor(Math.random() * 2)),
+                        level: Math.min(
+                          100,
+                          r.level + lvUp * performerBoost + Math.floor(Math.random() * 2)
+                        ),
                         visits: r.visits + 1,
                         lastVisitAt: now.toISOString(),
                       }
@@ -307,7 +438,8 @@ export const useGameStore = create<GameState>()(
                     category: cat,
                     favoriteMachineId: e.machineId,
                     favoriteMaker: m.maker,
-                    level: 5 + Math.floor(Math.random() * 10),
+                    level:
+                      5 + Math.floor(Math.random() * 10) + (setting >= 5 ? 5 : 0),
                     visits: 1,
                     lastVisitAt: now.toISOString(),
                   },
@@ -316,43 +448,51 @@ export const useGameStore = create<GameState>()(
             }
           }
         }
+        // 流出: 平均設定が低い & tick が回るたび少しずつ
+        if (avgSetting < 2.5 && regulars.length > 0) {
+          const elapsedTickFactor = elapsedSec / 30;
+          const dropChance = (2.5 - avgSetting) * 0.05 * elapsedTickFactor;
+          if (Math.random() < dropChance) {
+            const sorted = [...regulars].sort((a, b) => a.level - b.level);
+            const target = sorted[0];
+            if (target) {
+              const newLv = target.level - (5 + Math.floor(Math.random() * 6));
+              if (newLv <= 0) {
+                regulars = regulars.filter((r) => r.id !== target.id);
+              } else {
+                regulars = regulars.map((r) =>
+                  r.id === target.id ? { ...r, level: newLv } : r
+                );
+              }
+            }
+          }
+        }
 
-        // 倉庫保管費 (¥200/日/台)
+        // === 倉庫保管費 ===
         const warehouseCount = Object.values(user.ownedMachines).reduce(
           (a, b) => a + b,
           0
         );
-        const realSecPerDay = 4 * 3600;
         const storageFee = Math.round(
-          (warehouseCount * 200 * elapsedSec) / realSecPerDay
+          (warehouseCount * 200 * elapsedSec) / REAL_SEC_PER_BIZ_DAY
         );
 
-        // 営業時間ゲージから閉店作業帯か判定 (anchor 経由)
-        const anchorStr = localStorage.getItem("pachi-biz-anchor-v1");
-        const anchor = anchorStr ? parseInt(anchorStr, 10) : Date.now();
-        const cyclePos =
-          ((Date.now() - anchor) % (4 * 3600_000)) / (4 * 3600_000);
-        const inClosing = cyclePos >= 0.75;
-
-        // HP 処理: 営業中は減 / 閉店作業中は回復
+        // === HP 処理 ===
         const hpDecayMap = { N: 1.0, R: 1.1, SR: 1.3, SSR: 1.5 } as const;
-        const elapsedTickRatio = elapsedSec / 30; // 30s=1 tick 換算
+        const elapsedTickRatio = elapsedSec / 30;
         const decayPerTick = 0.4 * elapsedTickRatio;
         const recoverPerTick = 1.5 * elapsedTickRatio;
-        const updatedLayout = shop.layout.map((entry) => {
+        const updatedLayout = layoutBase.map((entry) => {
           const m = MACHINES_BY_ID[entry.machineId];
           if (!m) return entry;
           let hp = entry.hp ?? 100;
           let brokenPart = entry.brokenPart;
           let brokenSince = entry.brokenSince;
           if (brokenPart) {
-            // 故障中は放置時間が増える
             brokenSince = (brokenSince ?? 0) + elapsedTickRatio;
           } else if (inClosing) {
-            // 閉店作業: HP 回復
             hp = Math.min(100, hp + recoverPerTick);
           } else {
-            // 営業中: HP 減
             const dmg = decayPerTick * hpDecayMap[m.rarity] * entry.count;
             hp = Math.max(0, hp - dmg);
             if (hp <= 0) {
@@ -364,24 +504,103 @@ export const useGameStore = create<GameState>()(
           return { ...entry, hp, brokenPart, brokenSince };
         });
 
+        // === 月締め判定 + monthlyStats 更新 ===
+        let monthlyStats = get().monthlyStats;
+        let lastMonthlyStats = get().lastMonthlyStats;
+        const monthFraction = elapsedSec / REAL_SEC_PER_MONTH;
+        const rentInc = MONTHLY_RENT * monthFraction;
+        const elecInc = MONTHLY_ELECTRIC * monthFraction;
+        const laborInc = MONTHLY_LABOR * monthFraction;
+        monthlyStats = {
+          ...monthlyStats,
+          bizDayProgress:
+            monthlyStats.bizDayProgress + elapsedSec / REAL_SEC_PER_BIZ_DAY,
+          revenue: monthlyStats.revenue + Math.max(0, Math.round(revenue)),
+          customers: monthlyStats.customers + newCustomers,
+          rent: monthlyStats.rent + rentInc,
+          electric: monthlyStats.electric + elecInc,
+          labor: monthlyStats.labor + laborInc,
+          storage: monthlyStats.storage + storageFee,
+        };
+        if (monthlyStats.bizDayProgress >= 30) {
+          lastMonthlyStats = monthlyStats;
+          monthlyStats = emptyMonthlyStats(now);
+        }
+
+        // === 日締め: dailyCustomers リセット ===
+        const finalDailyCustomers = cycleAdvanced ? newCustomers : newDaily;
+        const finalTotalCustomers = shop.totalCustomers + newCustomers;
+
+        // 月固定費を時間按分で cash から差し引き
+        const fixedExpense = Math.round(rentInc + elecInc + laborInc);
+
+        // === 店長 XP ===
+        let managerLevel = get().managerLevel;
+        let managerXp = get().managerXp + Math.floor(newCustomers * 0.1);
+        while (managerXp >= 100) {
+          managerXp -= 100;
+          managerLevel += 1;
+        }
+
+        // === ニュース生成 ===
+        let newsItems = get().newsItems;
+        const newsLastGeneratedAt = get().newsLastGeneratedAt;
+        const newsLastMs = newsLastGeneratedAt
+          ? new Date(newsLastGeneratedAt).getTime()
+          : 0;
+        let nextNewsLastAt = newsLastGeneratedAt;
+        if (now.getTime() - newsLastMs > 30 * 60_000) {
+          // 業界 or 噂
+          const r = Math.random();
+          let item: NewsItem | null = null;
+          if (r < 0.7) item = genIndustryNews(now);
+          else if (r < 0.9) item = genRumorNews(now);
+          if (item) newsItems = [item, ...newsItems].slice(0, 12);
+          // 店舗ニュース
+          const brokenCount = updatedLayout.filter((e) => e.brokenPart).length;
+          const shopItem = genShopNews({
+            totalCustomers: finalTotalCustomers,
+            brokenCount,
+            avgSetting,
+            now,
+          });
+          if (shopItem) newsItems = [shopItem, ...newsItems].slice(0, 12);
+          nextNewsLastAt = now.toISOString();
+        }
+        if (appliedScheduleNote) {
+          const item = genEventNews(`📅 ${appliedScheduleNote}`, now);
+          newsItems = [item, ...newsItems].slice(0, 12);
+        }
+
         set({
           shop: {
             ...shop,
             layout: updatedLayout,
-            dailyCustomers: newDaily,
-            totalCustomers: shop.totalCustomers + newCustomers,
+            dailyCustomers: finalDailyCustomers,
+            totalCustomers: finalTotalCustomers,
             updatedAt: now.toISOString(),
           },
           user: {
             ...user,
-            cash: Math.max(0, user.cash + Math.round(revenue) - storageFee),
+            cash: Math.max(
+              0,
+              user.cash + Math.round(revenue) - storageFee - fixedExpense
+            ),
           },
           regulars,
           monthlyStorageFee: get().monthlyStorageFee + storageFee,
+          monthlyStats,
+          lastMonthlyStats,
+          activeEvent,
+          activePerformer,
+          scheduledSettings,
+          newsItems,
+          newsLastGeneratedAt: nextNewsLastAt,
+          managerLevel,
+          managerXp,
           lastTickAt: now.toISOString(),
         });
 
-        // totalMachines 参照は lint 対策
         void totalMachines;
 
         return { elapsedSec, newCustomers, revenue: Math.round(revenue) };
@@ -544,6 +763,7 @@ export const useGameStore = create<GameState>()(
         if (shop.capacity.machines >= 400) return { ok: false, reason: "max", cost: 0 };
         const cost = Math.round(1_000_000 * Math.pow(1.02, shop.capacity.machines - 200));
         if (user.cash < cost) return { ok: false, reason: "no-cash", cost };
+        const ms = get().monthlyStats;
         set({
           user: { ...user, cash: user.cash - cost },
           shop: {
@@ -551,6 +771,7 @@ export const useGameStore = create<GameState>()(
             capacity: { ...shop.capacity, machines: shop.capacity.machines + 1 },
             updatedAt: new Date().toISOString(),
           },
+          monthlyStats: { ...ms, equipment: ms.equipment + cost },
         });
         return { ok: true, cost };
       },
@@ -588,6 +809,7 @@ export const useGameStore = create<GameState>()(
         if (shop.capacity.types >= 60) return { ok: false, reason: "max", cost: 0 };
         const cost = Math.round(10_000_000 * Math.pow(1.15, shop.capacity.types - 40));
         if (user.cash < cost) return { ok: false, reason: "no-cash", cost };
+        const ms = get().monthlyStats;
         set({
           user: { ...user, cash: user.cash - cost },
           shop: {
@@ -595,6 +817,7 @@ export const useGameStore = create<GameState>()(
             capacity: { ...shop.capacity, types: shop.capacity.types + 1 },
             updatedAt: new Date().toISOString(),
           },
+          monthlyStats: { ...ms, equipment: ms.equipment + cost },
         });
         return { ok: true, cost };
       },
@@ -612,9 +835,11 @@ export const useGameStore = create<GameState>()(
         const owned = get().ownedBanners;
         if (owned.includes(id)) return { ok: false, reason: "already-owned" };
         if (user.cash < price) return { ok: false, reason: "no-cash" };
+        const ms = get().monthlyStats;
         set({
           user: { ...user, cash: user.cash - price },
           ownedBanners: [...owned, id],
+          monthlyStats: { ...ms, equipment: ms.equipment + price },
         });
         return { ok: true };
       },
@@ -693,9 +918,11 @@ export const useGameStore = create<GameState>()(
         const price = PRICES[part];
         if (user.cash < price) return { ok: false, reason: "no-cash" };
         const inv = get().partInventory;
+        const ms = get().monthlyStats;
         set({
           user: { ...user, cash: user.cash - price },
           partInventory: { ...inv, [part]: inv[part] + 1 },
+          monthlyStats: { ...ms, repair: ms.repair + price },
         });
         return { ok: true };
       },
@@ -784,7 +1011,96 @@ export const useGameStore = create<GameState>()(
             基盤: 0,
           },
           regulars: [],
+          monthlyStats: emptyMonthlyStats(),
+          lastMonthlyStats: null,
+          activeEvent: null,
+          activePerformer: null,
+          scheduledSettings: {},
+          newsItems: [],
+          newsLastGeneratedAt: null,
         }),
+
+      selectTodayEvent: (eventId) => {
+        const ev = SPECIAL_EVENTS_BY_ID[eventId];
+        if (!ev) return { ok: false, reason: "no-event" };
+        const user = get().user;
+        if (!user) return { ok: false, reason: "no-user" };
+        if (user.cash < ev.cost) return { ok: false, reason: "no-cash" };
+        const today = todayKey();
+        const ms = get().monthlyStats;
+        set({
+          user: { ...user, cash: user.cash - ev.cost },
+          activeEvent: { specialId: eventId, appliedDate: today },
+          monthlyStats: { ...ms, event: ms.event + ev.cost },
+          newsItems: [
+            genEventNews(`${ev.emoji} 本日のイベント「${ev.name}」発動！`),
+            ...get().newsItems,
+          ].slice(0, 12),
+        });
+        return { ok: true };
+      },
+
+      hireTodayPerformer: (performerId) => {
+        const p = PERFORMERS_BY_ID[performerId];
+        if (!p) return { ok: false, reason: "no-performer" };
+        const user = get().user;
+        if (!user) return { ok: false, reason: "no-user" };
+        if (user.cash < p.cost) return { ok: false, reason: "no-cash" };
+        const today = todayKey();
+        const ms = get().monthlyStats;
+        set({
+          user: { ...user, cash: user.cash - p.cost },
+          activePerformer: { performerId, appliedDate: today },
+          monthlyStats: { ...ms, event: ms.event + p.cost },
+          newsItems: [
+            genEventNews(`${p.emoji} 演者「${p.name}」が来店！`),
+            ...get().newsItems,
+          ].slice(0, 12),
+        });
+        return { ok: true };
+      },
+
+      scheduleSetting: (dateKey, machineId, setting) => {
+        const cur = get().scheduledSettings;
+        const dayMap = { ...(cur[dateKey] ?? {}) };
+        dayMap[machineId] = setting;
+        set({
+          scheduledSettings: { ...cur, [dateKey]: dayMap },
+        });
+      },
+
+      clearScheduledSetting: (dateKey, machineId) => {
+        const cur = get().scheduledSettings;
+        if (!cur[dateKey]) return;
+        const dayMap = { ...cur[dateKey] };
+        delete dayMap[machineId];
+        const next = { ...cur };
+        if (Object.keys(dayMap).length === 0) {
+          delete next[dateKey];
+        } else {
+          next[dateKey] = dayMap;
+        }
+        set({ scheduledSettings: next });
+      },
+
+      getScheduledFor: (dateKey) => {
+        return get().scheduledSettings[dateKey] ?? {};
+      },
+
+      addManagerXp: (amount) => {
+        if (amount <= 0) return;
+        let lv = get().managerLevel;
+        let xp = get().managerXp + amount;
+        while (xp >= 100) {
+          xp -= 100;
+          lv += 1;
+        }
+        set({ managerLevel: lv, managerXp: xp });
+      },
+
+      addNewsItem: (item) => {
+        set({ newsItems: [item, ...get().newsItems].slice(0, 12) });
+      },
     }),
     {
       name: "pachishop:game",
