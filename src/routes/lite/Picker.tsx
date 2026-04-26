@@ -12,7 +12,8 @@ import {
   LITE_MAX_TYPES,
 } from "../../stores/useLiteStore";
 import type { Machine, Rarity } from "../../lib/types";
-import { getMakerGroup } from "../../data/makerGroups";
+import { MAKER_GROUPS, getMakerGroup, type MakerGroup } from "../../data/makerGroups";
+import { YEAR_BUCKETS } from "../../lib/machineSort";
 
 const RARITY_ORDER: Rarity[] = ["SSR", "SR", "R", "N"];
 const RARITY_COLOR: Record<Rarity, string> = {
@@ -41,12 +42,21 @@ export function LitePicker() {
   const [sortKey, setSortKey] = useState<SortKey>("rarityYear");
   const [keyword, setKeyword] = useState("");
   const [includeOldGen, setIncludeOldGen] = useState(false);
+  const [yearFilter, setYearFilter] = useState<string>("all");
+  const [groupFilter, setGroupFilter] = useState<MakerGroup | "all">("all");
 
   const entries = shop?.entries;
   const machines = useMemo(() => {
     let list: Machine[] = ALL_MACHINES;
     if (!includeOldGen) {
       list = list.filter((m) => m.generation === 6);
+    }
+    if (yearFilter !== "all") {
+      const bucket = YEAR_BUCKETS.find((b) => b.key === yearFilter);
+      if (bucket) list = list.filter((m) => bucket.test(m.releaseYear));
+    }
+    if (groupFilter !== "all") {
+      list = list.filter((m) => getMakerGroup(m.maker) === groupFilter);
     }
     if (viewFilter === "selected") {
       list = list.filter((m) => (entries?.[m.id] ?? 0) > 0);
@@ -83,7 +93,7 @@ export function LitePicker() {
       }
     });
     return sorted;
-  }, [viewFilter, sortKey, entries, includeOldGen, keyword]);
+  }, [viewFilter, sortKey, entries, includeOldGen, keyword, yearFilter, groupFilter]);
 
   if (!shop) {
     return (
@@ -149,6 +159,34 @@ export function LitePicker() {
             {SORT_OPTIONS.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2 items-center">
+          <select
+            value={yearFilter}
+            onChange={(e) => setYearFilter(e.target.value)}
+            className="flex-1 px-2 py-2 font-dot text-xs bg-bg-panel border-2 border-bg-card text-white"
+            aria-label="年代"
+          >
+            <option value="all">年代: 全て</option>
+            {YEAR_BUCKETS.map((b) => (
+              <option key={b.key} value={b.key}>
+                {b.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value as MakerGroup | "all")}
+            className="flex-1 px-2 py-2 font-dot text-xs bg-bg-panel border-2 border-bg-card text-white"
+            aria-label="メーカー系列"
+          >
+            <option value="all">メーカー: 全て</option>
+            {MAKER_GROUPS.map((g) => (
+              <option key={g} value={g}>
+                {g}
               </option>
             ))}
           </select>
