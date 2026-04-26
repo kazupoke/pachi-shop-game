@@ -149,7 +149,7 @@ export function Market() {
                 machineId={r.m.id}
                 name={r.m.name}
                 rarity={r.m.rarity}
-                size={48}
+                size={96}
               />
             </div>
             <div className="flex-1 min-w-0">

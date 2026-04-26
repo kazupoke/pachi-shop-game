@@ -45,8 +45,9 @@ export function LitePicker() {
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("rarityYear");
-  const [groupOpen, setGroupOpen] = useState(false);
   const [includeOldGen, setIncludeOldGen] = useState(false);
+  const [keyword, setKeyword] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const entries = shop?.entries;
   const machines = useMemo(() => {
@@ -70,6 +71,15 @@ export function LitePicker() {
     }
     if (viewFilter === "selected") {
       list = list.filter((m) => (entries?.[m.id] ?? 0) > 0);
+    }
+    const k = keyword.trim().toLowerCase();
+    if (k) {
+      list = list.filter(
+        (m) =>
+          m.name.toLowerCase().includes(k) ||
+          m.maker.toLowerCase().includes(k) ||
+          getMakerGroup(m.maker).toLowerCase().includes(k)
+      );
     }
     const sorted = [...list].sort((a, b) => {
       // 「設置中」ビューでは固定で 台数DESC + 年代DESC
@@ -103,7 +113,7 @@ export function LitePicker() {
       }
     });
     return sorted;
-  }, [rarityFilter, groupFilter, kanaFilter, yearFilter, viewFilter, sortKey, entries, includeOldGen]);
+  }, [rarityFilter, groupFilter, kanaFilter, yearFilter, viewFilter, sortKey, entries, includeOldGen, keyword]);
 
   if (!shop) {
     return (
@@ -125,7 +135,15 @@ export function LitePicker() {
     setKanaFilter("all");
     setYearFilter("all");
     setViewFilter("all");
+    setKeyword("");
   };
+
+  const activeFilterCount =
+    (rarityFilter !== "all" ? 1 : 0) +
+    (groupFilter !== "all" ? 1 : 0) +
+    (kanaFilter !== "all" ? 1 : 0) +
+    (yearFilter !== "all" ? 1 : 0) +
+    (includeOldGen ? 1 : 0);
 
   const cap = isOverCapacity(shop);
   const totalM = totalMachines(shop);
@@ -138,190 +156,215 @@ export function LitePicker() {
         subtitle={`${shop.name}`}
       />
 
-      {/* 検索・フィルタ群 (上部固定) */}
+      {/* 検索・フィルタ群 (上部固定 / コンパクト) */}
       <div className="sticky top-[84px] z-10 bg-bg-base pb-2 border-b-2 border-bg-card">
-      {/* 容量カウンタ + ラインナップへ */}
-      <div className="px-4 pt-2 flex items-center gap-2">
-        <div
-          className={`flex-1 px-2 py-1.5 border-2 font-pixel text-[10px] flex justify-between items-center ${
-            cap.over
-              ? "bg-pachi-red/20 border-pachi-red text-pachi-red animate-blink"
-              : "bg-bg-panel border-bg-card text-white"
-          }`}
-        >
-          <span>
-            <span className={cap.overMachines ? "text-pachi-red" : ""}>
-              {totalM}
-            </span>
-            <span className="text-white/40"> / {LITE_MAX_MACHINES}台</span>
-          </span>
-          <span>
-            <span className={cap.overTypes ? "text-pachi-red" : ""}>
-              {totalK}
-            </span>
-            <span className="text-white/40"> / {LITE_MAX_TYPES}機種</span>
-          </span>
-        </div>
-        <button
-          onClick={() => navigate("/lite/view")}
-          className="shrink-0 px-2 py-1.5 font-pixel text-[10px] bg-pachi-yellow text-bg-base border-2 border-pachi-yellow"
-        >
-          一覧 ▶
-        </button>
-      </div>
-      <div className="px-4 pt-3 flex gap-2 text-xs items-center">
-        <button
-          onClick={() => setViewFilter("all")}
-          className={`px-3 py-2 font-dot border-2 ${
-            viewFilter === "all"
-              ? "bg-pachi-red text-white border-pachi-red"
-              : "bg-bg-panel text-white/60 border-bg-card"
-          }`}
-        >
-          全機種
-        </button>
-        <button
-          onClick={() => setViewFilter("selected")}
-          className={`px-3 py-2 font-dot border-2 ${
-            viewFilter === "selected"
-              ? "bg-pachi-red text-white border-pachi-red"
-              : "bg-bg-panel text-white/60 border-bg-card"
-          }`}
-        >
-          設置中
-        </button>
-        <select
-          value={sortKey}
-          onChange={(e) => setSortKey(e.target.value as SortKey)}
-          className="ml-auto px-2 py-2 font-dot text-[11px] bg-bg-panel border-2 border-bg-card text-white"
-          aria-label="並び替え"
-        >
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* レアリティ */}
-      <div className="px-4 pt-2 flex gap-1 text-[11px] overflow-x-auto">
-        {(["all", "SSR", "SR", "R", "N"] as const).map((r) => (
-          <button
-            key={r}
-            onClick={() => setRarityFilter(r)}
-            className={`px-2 py-1 font-dot border whitespace-nowrap ${
-              rarityFilter === r
-                ? "bg-pachi-pink border-pachi-pink"
-                : "bg-bg-panel border-bg-card text-white/60"
+        {/* 進捗バー (大きめ) */}
+        <div className="px-4 pt-2">
+          <div
+            className={`p-2 border-2 ${
+              cap.over
+                ? "bg-pachi-red/15 border-pachi-red animate-blink"
+                : totalM === LITE_MAX_MACHINES && totalK === LITE_MAX_TYPES
+                ? "bg-pachi-yellow/15 border-pachi-yellow"
+                : "bg-bg-panel border-bg-card"
             }`}
           >
-            {r === "all" ? "全レア" : r}
-          </button>
-        ))}
-      </div>
-
-      {/* 50 音 */}
-      <div className="px-4 pt-2">
-        <p className="font-pixel text-[9px] text-pachi-cyan mb-1">50 音</p>
-        <div className="flex gap-1 text-[11px] flex-wrap">
-          <ChipBtn
-            label="全て"
-            active={kanaFilter === "all"}
-            onClick={() => setKanaFilter("all")}
-          />
-          {KANA_FILTERS.map((k) => (
-            <ChipBtn
-              key={k.key}
-              label={k.label}
-              active={kanaFilter === k.key}
-              onClick={() => setKanaFilter(k.key)}
+            <div className="flex justify-between items-baseline mb-1.5">
+              <span className="font-pixel text-[10px] text-pachi-cyan">
+                {totalM === LITE_MAX_MACHINES && totalK === LITE_MAX_TYPES && !cap.over
+                  ? "★ COMPLETE!"
+                  : "選択進捗"}
+              </span>
+              <button
+                onClick={() => navigate("/lite/view")}
+                className="font-pixel text-[10px] bg-pachi-yellow text-bg-base px-2 py-0.5 border border-pachi-yellow"
+              >
+                一覧 ▶
+              </button>
+            </div>
+            <ProgressBar
+              label="台数"
+              current={totalM}
+              max={LITE_MAX_MACHINES}
+              over={cap.overMachines}
             />
-          ))}
-        </div>
-      </div>
-
-      {/* 世代トグル */}
-      <div className="px-4 pt-2 flex items-center justify-between">
-        <span className="font-pixel text-[9px] text-pachi-cyan">
-          {includeOldGen ? "全世代表示中" : "6号機のみ"}
-        </span>
-        <button
-          onClick={() => setIncludeOldGen((v) => !v)}
-          className="text-[10px] text-white/60 underline"
-        >
-          {includeOldGen ? "6号機だけに絞る" : "4/5号機も表示"}
-        </button>
-      </div>
-
-      {/* 年代 */}
-      <div className="px-4 pt-2">
-        <p className="font-pixel text-[9px] text-pachi-cyan mb-1">年代</p>
-        <div className="flex gap-1 text-[11px] flex-wrap">
-          <ChipBtn
-            label="全年代"
-            active={yearFilter === "all"}
-            onClick={() => setYearFilter("all")}
-          />
-          {YEAR_BUCKETS.map((b) => (
-            <ChipBtn
-              key={b.key}
-              label={b.label}
-              active={yearFilter === b.key}
-              onClick={() => setYearFilter(b.key)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* メーカー系列 (折りたたみ) */}
-      <div className="px-4 pt-2">
-        <button
-          onClick={() => setGroupOpen((v) => !v)}
-          className="w-full px-3 py-2 font-dot text-[11px] bg-bg-panel border-2 border-bg-card text-white/80 flex justify-between items-center"
-        >
-          <span>
-            メーカー系列:{" "}
-            <span className="text-pachi-cyan">
-              {groupFilter === "all" ? "全系列" : groupFilter}
-            </span>
-          </span>
-          <span className="text-white/50">{groupOpen ? "▲" : "▼"}</span>
-        </button>
-        {groupOpen && (
-          <div className="mt-2 grid grid-cols-3 gap-1 text-[10px]">
-            <ChipBtn
-              label="全系列"
-              active={groupFilter === "all"}
-              onClick={() => {
-                setGroupFilter("all");
-                setGroupOpen(false);
-              }}
-            />
-            {MAKER_GROUPS.map((g) => (
-              <ChipBtn
-                key={g}
-                label={g}
-                active={groupFilter === g}
-                onClick={() => {
-                  setGroupFilter(g);
-                  setGroupOpen(false);
-                }}
+            <div className="mt-1">
+              <ProgressBar
+                label="機種"
+                current={totalK}
+                max={LITE_MAX_TYPES}
+                over={cap.overTypes}
               />
+            </div>
+          </div>
+        </div>
+
+        {/* 検索 + 絞り込みボタン */}
+        <div className="px-4 pt-2 flex gap-2 items-center">
+          <input
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="🔍 機種名・メーカー・系列"
+            className="flex-1 px-3 py-2 bg-bg-base border-2 border-bg-card text-white font-dot text-xs focus:border-pachi-pink outline-none"
+          />
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            className={`shrink-0 px-3 py-2 font-pixel text-[10px] border-2 ${
+              activeFilterCount > 0 || filterOpen
+                ? "bg-pachi-pink border-pachi-pink text-white"
+                : "bg-bg-panel border-bg-card text-white/70"
+            }`}
+          >
+            絞り込み{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}{" "}
+            {filterOpen ? "▲" : "▼"}
+          </button>
+        </div>
+
+        {/* レアリティ + ビュー + ソート (常時表示・1行) */}
+        <div className="px-4 pt-2 flex gap-1 text-[11px] items-center overflow-x-auto">
+          <button
+            onClick={() => setViewFilter("all")}
+            className={`shrink-0 px-2 py-1 font-dot border-2 ${
+              viewFilter === "all"
+                ? "bg-pachi-red text-white border-pachi-red"
+                : "bg-bg-panel text-white/60 border-bg-card"
+            }`}
+          >
+            全
+          </button>
+          <button
+            onClick={() => setViewFilter("selected")}
+            className={`shrink-0 px-2 py-1 font-dot border-2 ${
+              viewFilter === "selected"
+                ? "bg-pachi-red text-white border-pachi-red"
+                : "bg-bg-panel text-white/60 border-bg-card"
+            }`}
+          >
+            選択中
+          </button>
+          <span className="w-1 shrink-0" />
+          {(["all", "SSR", "SR", "R", "N"] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRarityFilter(r)}
+              className={`shrink-0 px-2 py-1 font-dot border whitespace-nowrap ${
+                rarityFilter === r
+                  ? "bg-pachi-pink border-pachi-pink"
+                  : "bg-bg-panel border-bg-card text-white/60"
+              }`}
+            >
+              {r === "all" ? "全レア" : r}
+            </button>
+          ))}
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="ml-auto shrink-0 px-2 py-1 font-dot text-[11px] bg-bg-panel border-2 border-bg-card text-white"
+            aria-label="並び替え"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
             ))}
+          </select>
+        </div>
+
+        {/* 詳細フィルタ (折りたたみ) */}
+        {filterOpen && (
+          <div className="px-4 pt-2 space-y-2 border-t border-bg-card mt-2">
+            {/* 世代トグル */}
+            <div className="flex items-center justify-between pt-2">
+              <span className="font-pixel text-[10px] text-pachi-cyan">世代</span>
+              <button
+                onClick={() => setIncludeOldGen((v) => !v)}
+                className={`px-2 py-1 font-dot text-[10px] border-2 ${
+                  includeOldGen
+                    ? "bg-pachi-pink border-pachi-pink text-white"
+                    : "bg-bg-panel border-bg-card text-white/70"
+                }`}
+              >
+                {includeOldGen ? "全世代 (4/5/6 号機)" : "6 号機のみ"}
+              </button>
+            </div>
+
+            {/* 50 音 */}
+            <div>
+              <p className="font-pixel text-[9px] text-pachi-cyan mb-1">50 音</p>
+              <div className="flex gap-1 text-[11px] flex-wrap">
+                <ChipBtn
+                  label="全て"
+                  active={kanaFilter === "all"}
+                  onClick={() => setKanaFilter("all")}
+                />
+                {KANA_FILTERS.map((k) => (
+                  <ChipBtn
+                    key={k.key}
+                    label={k.label}
+                    active={kanaFilter === k.key}
+                    onClick={() => setKanaFilter(k.key)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* 年代 */}
+            <div>
+              <p className="font-pixel text-[9px] text-pachi-cyan mb-1">年代</p>
+              <div className="flex gap-1 text-[11px] flex-wrap">
+                <ChipBtn
+                  label="全年代"
+                  active={yearFilter === "all"}
+                  onClick={() => setYearFilter("all")}
+                />
+                {YEAR_BUCKETS.map((b) => (
+                  <ChipBtn
+                    key={b.key}
+                    label={b.label}
+                    active={yearFilter === b.key}
+                    onClick={() => setYearFilter(b.key)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* メーカー系列 */}
+            <div>
+              <p className="font-pixel text-[9px] text-pachi-cyan mb-1">メーカー系列</p>
+              <div className="grid grid-cols-3 gap-1 text-[10px]">
+                <ChipBtn
+                  label="全系列"
+                  active={groupFilter === "all"}
+                  onClick={() => setGroupFilter("all")}
+                />
+                {MAKER_GROUPS.map((g) => (
+                  <ChipBtn
+                    key={g}
+                    label={g}
+                    active={groupFilter === g}
+                    onClick={() => setGroupFilter(g)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-1 pb-1 flex justify-between items-center">
+              <button
+                onClick={clearFilters}
+                className="text-[10px] text-white/60 underline"
+              >
+                フィルタをクリア
+              </button>
+              <button
+                onClick={() => setFilterOpen(false)}
+                className="font-pixel text-[10px] bg-bg-panel border-2 border-bg-card px-3 py-1 text-white/80"
+              >
+                閉じる
+              </button>
+            </div>
           </div>
         )}
-      </div>
-
-      {/* 一括クリア */}
-      <div className="px-4 pt-2">
-        <button
-          onClick={clearFilters}
-          className="text-[10px] text-white/50 underline"
-        >
-          フィルタをクリア
-        </button>
-      </div>
       </div>
       {/* /sticky filter wrapper */}
 
@@ -347,7 +390,7 @@ export function LitePicker() {
                     machineId={m.id}
                     name={m.name}
                     rarity={m.rarity}
-                    size={48}
+                    size={96}
                   />
                   {isSelected && (
                     <span className="absolute -top-1 -right-1 bg-pachi-green text-bg-base font-pixel text-[8px] px-1 leading-none py-0.5">
@@ -368,38 +411,53 @@ export function LitePicker() {
                     {m.rarity} · {m.type}
                   </p>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => incrementMachine(m.id, -1)}
-                    disabled={count === 0}
-                    className="w-8 h-8 font-pixel text-sm bg-bg-base border-2 border-bg-card text-white disabled:opacity-30"
-                    aria-label="台数を減らす"
-                  >
-                    −
-                  </button>
-                  <span
-                    className={`font-pixel text-xs w-8 text-center ${
-                      isSelected ? "text-pachi-green" : "text-pachi-yellow"
-                    }`}
-                  >
-                    {count}
-                  </span>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => incrementMachine(m.id, -1)}
+                      disabled={count === 0}
+                      className="w-10 h-10 font-pixel text-base bg-bg-base border-2 border-bg-card text-white disabled:opacity-30 active:translate-y-0.5"
+                      aria-label="台数を減らす"
+                    >
+                      −
+                    </button>
+                    <span
+                      className={`font-pixel text-base w-10 text-center ${
+                        isSelected ? "text-pachi-green" : "text-pachi-yellow"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (count === 0 && totalK >= LITE_MAX_TYPES) return;
+                        if (totalM >= LITE_MAX_MACHINES) return;
+                        incrementMachine(m.id, 1);
+                      }}
+                      disabled={
+                        totalM >= LITE_MAX_MACHINES ||
+                        (count === 0 && totalK >= LITE_MAX_TYPES)
+                      }
+                      className="w-10 h-10 font-pixel text-base bg-pachi-red border-2 border-pachi-red text-white disabled:opacity-30 active:translate-y-0.5"
+                      aria-label="台数を増やす"
+                    >
+                      ＋
+                    </button>
+                  </div>
                   <button
                     onClick={() => {
-                      // 機種枠超過: 新規追加 (count===0) のみブロック
                       if (count === 0 && totalK >= LITE_MAX_TYPES) return;
-                      // 台数枠超過: 全体ブロック
-                      if (totalM >= LITE_MAX_MACHINES) return;
-                      incrementMachine(m.id, 1);
+                      const room = LITE_MAX_MACHINES - totalM;
+                      const inc = Math.min(5, room);
+                      if (inc > 0) incrementMachine(m.id, inc);
                     }}
                     disabled={
                       totalM >= LITE_MAX_MACHINES ||
                       (count === 0 && totalK >= LITE_MAX_TYPES)
                     }
-                    className="w-8 h-8 font-pixel text-sm bg-pachi-red border-2 border-pachi-red text-white disabled:opacity-30"
-                    aria-label="台数を増やす"
+                    className="font-pixel text-[10px] px-2 py-1 bg-pachi-yellow text-bg-base border-2 border-pachi-yellow disabled:opacity-30"
                   >
-                    +
+                    ＋5
                   </button>
                 </div>
               </li>
@@ -459,5 +517,49 @@ function ChipBtn({
     >
       {label}
     </button>
+  );
+}
+
+function ProgressBar({
+  label,
+  current,
+  max,
+  over,
+}: {
+  label: string;
+  current: number;
+  max: number;
+  over: boolean;
+}) {
+  const pct = Math.min(100, (current / max) * 100);
+  return (
+    <div>
+      <div className="flex justify-between items-baseline text-[10px]">
+        <span className="font-pixel text-white/70">{label}</span>
+        <span
+          className={`font-pixel ${
+            over
+              ? "text-pachi-red"
+              : current === max
+              ? "text-pachi-yellow"
+              : "text-white"
+          }`}
+        >
+          {current} / {max}
+        </span>
+      </div>
+      <div className="mt-0.5 h-2 bg-bg-base border border-bg-card overflow-hidden">
+        <div
+          className={`h-full transition-all duration-300 ${
+            over
+              ? "bg-pachi-red"
+              : current === max
+              ? "bg-pachi-yellow"
+              : "bg-pachi-green"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
   );
 }
