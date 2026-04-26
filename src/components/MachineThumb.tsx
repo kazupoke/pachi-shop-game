@@ -78,11 +78,11 @@ interface Props {
   name: string;
   rarity: Rarity;
   className?: string;
-  /** ピクセル画像の内部解像度。指定なしなら 96 (標準) */
+  /** ピクセル画像の内部解像度。指定なしなら 48 (標準) */
   size?: MachineThumbSize;
 }
 
-export function MachineThumb({ machineId, name, rarity, className = "", size = 96 }: Props) {
+export function MachineThumb({ machineId, name, rarity, className = "", size = 48 }: Props) {
   const [pworldId, setPworldId] = useState<number | null>(null);
   const [pixelFailed, setPixelFailed] = useState(false);
   const [remoteFailed, setRemoteFailed] = useState(false);

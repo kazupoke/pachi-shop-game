@@ -365,7 +365,7 @@ function InShopView({
                 machineId={m.id}
                 name={m.name}
                 rarity={m.rarity}
-                size={96}
+                size={48}
               />
             </div>
             <div className="flex-1 min-w-0">

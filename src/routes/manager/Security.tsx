@@ -8,30 +8,13 @@ export function Security() {
   const credentials = useGameStore((s) => s.credentials);
   const setPassword = useGameStore((s) => s.setPassword);
   const clearPassword = useGameStore((s) => s.clearPassword);
-  const resetAll = useGameStore((s) => s.resetAll);
 
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
-  const [resetStage, setResetStage] = useState<0 | 1 | 2>(0);
   const flash = (t: string) => {
     setMsg(t);
     setTimeout(() => setMsg(null), 2000);
-  };
-
-  const handleResetAll = () => {
-    if (resetStage < 2) {
-      setResetStage((s) => (s + 1) as 0 | 1 | 2);
-      return;
-    }
-    // 2 段階目押下 → 実行
-    resetAll();
-    try {
-      // BizHoursGauge の anchor もリセット (再起動時刻を 0 に戻す)
-      localStorage.removeItem("pachi-biz-anchor-v1");
-    } catch {}
-    setResetStage(0);
-    navigate("/title", { replace: true });
   };
 
   if (!credentials) {
@@ -166,44 +149,6 @@ export function Security() {
           ※ 現在はローカル保存のみ。サーバー側のグローバルなユニーク確認・
           ログイン同期は実装中。
         </p>
-      </div>
-
-      {/* 危険ゾーン: 全データ削除 (テスト用) */}
-      <div className="px-4 mt-6">
-        <div className="pixel-panel p-3 border-2 border-pachi-red">
-          <p className="font-pixel text-[10px] text-pachi-red mb-2">
-            ⚠ 危険ゾーン (テスト用)
-          </p>
-          <p className="text-[10px] text-white/70 leading-relaxed mb-3">
-            セーブデータ・店舗・倉庫・常連・経営履歴・ガチャ進捗を{" "}
-            <span className="text-pachi-red font-pixel">すべて</span>{" "}
-            削除して最初からプレイし直せます。元には戻せません。
-          </p>
-          <button
-            onClick={handleResetAll}
-            className={`pixel-btn w-full text-xs py-3 ${
-              resetStage === 0
-                ? "bg-bg-card text-white/70"
-                : resetStage === 1
-                ? "bg-pachi-pink text-white animate-blink"
-                : "bg-pachi-red text-white animate-blink"
-            }`}
-          >
-            {resetStage === 0
-              ? "🗑 全データを削除して最初から"
-              : resetStage === 1
-              ? "⚠ 本当に消す? もう一度押すと最終確認"
-              : "⚠⚠ 最終確認: もう一度押すと完全削除"}
-          </button>
-          {resetStage > 0 && (
-            <button
-              onClick={() => setResetStage(0)}
-              className="w-full mt-2 text-[10px] text-white/60 underline"
-            >
-              キャンセル
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );

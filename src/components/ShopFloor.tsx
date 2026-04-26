@@ -605,7 +605,7 @@ function MachineTile({
           machineId={m.id}
           name={m.name}
           rarity={m.rarity}
-          size={96}
+          size={48}
           className="w-full h-full"
         />
       </div>
