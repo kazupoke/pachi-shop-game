@@ -12,6 +12,8 @@ import { MACHINES_BY_ID } from "../../data/machines";
 import type { Machine, Rarity } from "../../lib/types";
 import { calcScore, totalCost, starRating } from "../../lib/litePricing";
 import { useGameStore } from "../../stores/useGameStore";
+import { buildShareUrl } from "../../lib/shareUrl";
+import { ShareSheet } from "../../components/ShareSheet";
 
 const RARITY_ORDER: Rarity[] = ["SSR", "SR", "R", "N"];
 const RARITY_BADGE: Record<Rarity, string> = {
@@ -31,6 +33,7 @@ export function LiteView() {
 
   // 開いた瞬間の演出
   const [revealed, setRevealed] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setRevealed(true), 250);
     return () => clearTimeout(t);
@@ -74,20 +77,12 @@ export function LiteView() {
   const cost = totalCost(shop.entries, MACHINES_BY_ID);
   const cap = isOverCapacity(shop);
 
-  const handleShare = async () => {
-    const text = `【${shop.name}】設置 ${totalCount}台 / ${kindCount}機種\n理想店レベル ${starRating(score.total)} (${score.total.toFixed(1)})\n#マイパチ店`;
-    const url = window.location.href;
-    if ("share" in navigator) {
-      try {
-        await navigator.share({ title: shop.name, text, url });
-        return;
-      } catch {
-        /* キャンセルは無視 */
-      }
-    }
-    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
-    window.open(intent, "_blank");
-  };
+  const shareUrl = buildShareUrl({
+    name: shop.name,
+    seriesId: shop.seriesId ?? null,
+    entries: shop.entries,
+  });
+  const shareText = `【${shop.name}】設置 ${totalCount}台 / ${kindCount}機種\n理想店レベル ${starRating(score.total)} (${score.total.toFixed(1)})\n#マイパチ店`;
 
   const handleStartFullMode = () => {
     if (!fullGameShop) {
@@ -338,14 +333,23 @@ export function LiteView() {
           設定
         </button>
         <button
-          onClick={handleShare}
-          className="pixel-btn-secondary text-xs disabled:opacity-30"
+          onClick={() => setShareOpen(true)}
+          className="pixel-btn text-xs disabled:opacity-30"
           disabled={rows.length === 0 || cap.over}
           title={cap.over ? "容量オーバー中はシェアできません" : ""}
         >
-          シェア
+          ▶ シェア
         </button>
       </div>
+
+      {shareOpen && (
+        <ShareSheet
+          shareUrl={shareUrl}
+          shareText={shareText}
+          title={shop.name}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   );
 }

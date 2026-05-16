@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { decodeShop } from "../lib/shareUrl";
+import { buildShareUrl, decodeShop } from "../lib/shareUrl";
 import { MACHINES_BY_ID } from "../data/machines";
 import { calcScore, totalCost, starRating } from "../lib/litePricing";
 import { getSeriesById } from "../lib/shopSeries";
+import { useLiteStore } from "../stores/useLiteStore";
+import { ShareSheet } from "../components/ShareSheet";
 import type { Machine, Rarity } from "../lib/types";
 
 const RARITY_ORDER: Rarity[] = ["SSR", "SR", "R", "N"];
@@ -25,6 +27,26 @@ export function Share() {
     () => decodeShop(location.search.replace(/^\?/, "")),
     [location.search]
   );
+  const existingLite = useLiteStore((s) => s.shop);
+  const createLiteShop = useLiteStore((s) => s.createShop);
+  const setLiteEntries = useLiteStore((s) => s.setEntries);
+  const setLiteSeries = useLiteStore((s) => s.setSeries);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  const handleClone = () => {
+    if (!shop) return;
+    if (existingLite && existingLite.entries && Object.keys(existingLite.entries).length > 0) {
+      const ok = confirm(
+        `現在のライトモード店「${existingLite.name}」を上書きします。よろしいですか？`
+      );
+      if (!ok) return;
+    }
+    // 新規作成 → entries / series を投入
+    createLiteShop(shop.name || "マイ・ライト店", shop.seriesId ?? null);
+    setLiteEntries(shop.entries);
+    setLiteSeries(shop.seriesId ?? null);
+    navigate("/lite/build");
+  };
 
   if (!shop) {
     return (
@@ -197,13 +219,39 @@ export function Share() {
             あなたも理想のホールを作ろう
           </p>
           <button
-            onClick={() => navigate("/")}
+            onClick={handleClone}
             className="pixel-btn w-full text-xs"
           >
-            マイパチ店を始める
+            ▶ この店をテンプレに編集
           </button>
+          <p className="text-[10px] text-white/40 mt-2 text-center">
+            既存のライトモード店があれば上書き確認します
+          </p>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <button
+              onClick={() => setShareOpen(true)}
+              className="pixel-btn-secondary text-xs"
+            >
+              📤 再シェア
+            </button>
+            <button
+              onClick={() => navigate("/")}
+              className="pixel-btn-secondary text-xs"
+            >
+              ホームへ
+            </button>
+          </div>
         </div>
       </div>
+
+      {shareOpen && (
+        <ShareSheet
+          shareUrl={buildShareUrl(shop)}
+          shareText={`【${shop.name || "理想のお店"}】設置 ${totalCount}台 / ${kindCount}機種\n理想店レベル ${starRating(score.total)} (${score.total.toFixed(1)})\n#マイパチ店`}
+          title={shop.name || "理想のお店"}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   );
 }

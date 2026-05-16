@@ -8,12 +8,14 @@ import { BannerImage } from "../components/BannerImage";
 import { ShopFloor } from "../components/ShopFloor";
 import { BizHoursGauge } from "../components/BizHoursGauge";
 import { ShopDashboard } from "../components/ShopDashboard";
+import { ShareSheet } from "../components/ShareSheet";
 
 export function MyShop() {
   const navigate = useNavigate();
   const shop = useGameStore((s) => s.shop);
   const activeBannerId = useGameStore((s) => s.activeBannerId);
   const banner = getBannerById(activeBannerId) ?? BANNERS[0];
+  const [shareOpen, setShareOpen] = useState(false);
 
   const totalMachines = useMemo(
     () => shop?.layout.reduce((s, e) => s + e.count, 0) ?? 0,
@@ -31,27 +33,14 @@ export function MyShop() {
     );
   }
 
-  const handleShare = async () => {
-    // 設置台数を {machineId: count} に
-    const entries: Record<string, number> = {};
-    for (const e of shop.layout) entries[e.machineId] = e.count;
-    const url = buildShareUrl({
-      name: shop.name,
-      seriesId: useGameStore.getState().shopSeriesId,
-      entries,
-    });
-    const text = `【${shop.name}】設置台数 ${totalMachines}台 / ${shop.layout.length}機種\n遊びに来てね！\n#マイパチ店`;
-    if ("share" in navigator) {
-      try {
-        await navigator.share({ title: shop.name, text, url });
-        return;
-      } catch {
-        // キャンセルされても無視
-      }
-    }
-    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
-    window.open(intent, "_blank");
-  };
+  const shareEntries: Record<string, number> = {};
+  for (const e of shop.layout) shareEntries[e.machineId] = e.count;
+  const shareUrl = buildShareUrl({
+    name: shop.name,
+    seriesId: useGameStore.getState().shopSeriesId,
+    entries: shareEntries,
+  });
+  const shareText = `【${shop.name}】設置台数 ${totalMachines}台 / ${shop.layout.length}機種\n遊びに来てね！\n#マイパチ店`;
 
   const handleViewShareScreen = () => {
     const entries: Record<string, number> = {};
@@ -125,13 +114,22 @@ export function MyShop() {
         >
           シェア用画面を開く (スクショ向け)
         </button>
-        <button onClick={handleShare} className="pixel-btn text-xs col-span-2">
-          シェアする
+        <button onClick={() => setShareOpen(true)} className="pixel-btn text-xs col-span-2">
+          ▶ シェアする
         </button>
       </div>
       <p className="px-4 mt-3 text-[10px] text-white/40 text-center">
         （リンク踏み→客数UP はサーバー連携後に反映）
       </p>
+
+      {shareOpen && (
+        <ShareSheet
+          shareUrl={shareUrl}
+          shareText={shareText}
+          title={shop.name}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   );
 }

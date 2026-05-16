@@ -12,6 +12,8 @@ import { shortId } from "../lib/id";
 export interface LiteShop {
   id: string;
   name: string;
+  /** 系列 ID (SHOP_SERIES の id) */
+  seriesId: string | null;
   /** 機種ID -> 台数 */
   entries: Record<string, number>;
   createdAt: string;
@@ -20,19 +22,22 @@ export interface LiteShop {
 
 interface LiteState {
   shop: LiteShop | null;
-  createShop: (name: string) => void;
+  createShop: (name: string, seriesId?: string | null) => void;
   renameShop: (name: string) => void;
+  setSeries: (seriesId: string | null) => void;
+  setEntries: (entries: Record<string, number>) => void;
   setMachineCount: (machineId: string, count: number) => void;
   incrementMachine: (machineId: string, delta: number) => void;
   removeMachine: (machineId: string) => void;
   resetShop: () => void;
 }
 
-function emptyShop(name: string): LiteShop {
+function emptyShop(name: string, seriesId: string | null = null): LiteShop {
   const now = new Date().toISOString();
   return {
     id: shortId(),
     name: name.trim() || "マイ・ライト店",
+    seriesId,
     entries: {},
     createdAt: now,
     updatedAt: now,
@@ -44,8 +49,8 @@ export const useLiteStore = create<LiteState>()(
     (set) => ({
       shop: null,
 
-      createShop: (name) =>
-        set(() => ({ shop: emptyShop(name) })),
+      createShop: (name, seriesId = null) =>
+        set(() => ({ shop: emptyShop(name, seriesId) })),
 
       renameShop: (name) =>
         set((s) =>
@@ -59,6 +64,43 @@ export const useLiteStore = create<LiteState>()(
               }
             : s
         ),
+
+      setSeries: (seriesId) =>
+        set((s) =>
+          s.shop
+            ? {
+                shop: {
+                  ...s.shop,
+                  seriesId,
+                  updatedAt: new Date().toISOString(),
+                },
+              }
+            : s
+        ),
+
+      setEntries: (entries) =>
+        set((s) => {
+          const next: Record<string, number> = {};
+          for (const [id, c] of Object.entries(entries)) {
+            const n = Math.max(0, Math.min(999, Math.floor(c)));
+            if (n > 0) next[id] = n;
+          }
+          if (!s.shop) {
+            return {
+              shop: {
+                ...emptyShop("マイ・ライト店"),
+                entries: next,
+              },
+            };
+          }
+          return {
+            shop: {
+              ...s.shop,
+              entries: next,
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        }),
 
       setMachineCount: (machineId, count) =>
         set((s) => {
@@ -104,6 +146,14 @@ export const useLiteStore = create<LiteState>()(
     }),
     {
       name: "pachi-lite-v1",
+      version: 2,
+      migrate: (persistedState, version) => {
+        const s = persistedState as { shop?: Partial<LiteShop> } | undefined;
+        if (version < 2 && s?.shop) {
+          if (s.shop.seriesId === undefined) s.shop.seriesId = null;
+        }
+        return persistedState as LiteState;
+      },
       storage: createJSONStorage(() => localStorage),
     }
   )

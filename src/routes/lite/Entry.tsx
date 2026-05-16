@@ -4,20 +4,26 @@ import { useLiteStore, totalMachines, totalKinds } from "../../stores/useLiteSto
 import { PageHeader } from "../../components/PageHeader";
 import { MACHINES_BY_ID } from "../../data/machines";
 import { calcScore, totalCost, starRating } from "../../lib/litePricing";
+import { SHOP_SERIES, getSeriesById } from "../../lib/shopSeries";
 
 export function LiteEntry() {
   const navigate = useNavigate();
   const shop = useLiteStore((s) => s.shop);
   const createShop = useLiteStore((s) => s.createShop);
   const renameShop = useLiteStore((s) => s.renameShop);
+  const setSeries = useLiteStore((s) => s.setSeries);
   const resetShop = useLiteStore((s) => s.resetShop);
   const [name, setName] = useState(shop?.name ?? "");
+  const [seriesId, setSeriesId] = useState<string | null>(
+    shop?.seriesId ?? null
+  );
 
   const handleStart = () => {
     if (!shop) {
-      createShop(name);
-    } else if (name.trim() && name.trim() !== shop.name) {
-      renameShop(name);
+      createShop(name, seriesId);
+    } else {
+      if (name.trim() && name.trim() !== shop.name) renameShop(name);
+      if (seriesId !== (shop.seriesId ?? null)) setSeries(seriesId);
     }
     navigate("/lite/build");
   };
@@ -26,11 +32,13 @@ export function LiteEntry() {
     if (confirm("ライトモードのお店データをリセットしますか？")) {
       resetShop();
       setName("");
+      setSeriesId(null);
     }
   };
 
   const score = shop ? calcScore(shop.entries, MACHINES_BY_ID) : null;
   const cost = shop ? totalCost(shop.entries, MACHINES_BY_ID) : 0;
+  const currentSeries = getSeriesById(shop?.seriesId ?? null);
 
   return (
     <div>
@@ -64,6 +72,51 @@ export function LiteEntry() {
               className="block w-full mt-2 px-3 py-3 bg-bg-base border-2 border-bg-card text-white font-dot text-sm focus:border-pachi-pink outline-none"
             />
           </label>
+
+          {/* 系列セレクター */}
+          <div className="mt-4">
+            <p className="text-xs text-white/70 mb-2">系列カラー (任意)</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setSeriesId(null)}
+                className={`text-left px-2 py-2 border-2 font-dot text-[11px] ${
+                  seriesId === null
+                    ? "border-pachi-pink bg-pachi-pink/10 text-white"
+                    : "border-bg-card bg-bg-base text-white/60"
+                }`}
+              >
+                <span className="font-pixel text-[10px]">なし</span>
+                <span className="block text-[9px] text-white/40 mt-0.5">
+                  独立系
+                </span>
+              </button>
+              {SHOP_SERIES.map((s) => {
+                const active = seriesId === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setSeriesId(s.id)}
+                    className={`text-left px-2 py-2 border-2 font-dot text-[11px] ${
+                      active
+                        ? `${s.accent} bg-bg-base text-white`
+                        : "border-bg-card bg-bg-base text-white/60"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1">
+                      <span>{s.emoji}</span>
+                      <span className="font-pixel text-[10px] truncate">
+                        {s.name}
+                      </span>
+                    </span>
+                    <span className="block text-[9px] text-white/40 mt-0.5 truncate">
+                      {s.tagline}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <button onClick={handleStart} className="pixel-btn w-full mt-4 text-xs">
             {shop ? "理想の機種を選ぶ" : "理想のお店を作る"}
           </button>
@@ -76,6 +129,14 @@ export function LiteEntry() {
               現在の理想:「{shop.name}」
             </p>
             <div className="space-y-1.5 text-[11px]">
+              {currentSeries && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">系列</span>
+                  <span className="text-white">
+                    {currentSeries.emoji} {currentSeries.name}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-white/60">設置</span>
                 <span className="text-white">
